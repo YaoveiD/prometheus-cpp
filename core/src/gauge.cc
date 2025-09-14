@@ -6,6 +6,12 @@ namespace prometheus {
 
 Gauge::Gauge(const double value) : value_{value} {}
 
+Gauge::Gauge(std::function<double(void)> callback) : callback_{callback} {}
+
+Gauge::~Gauge() {
+  callback_ = nullptr;
+}
+
 void Gauge::Increment() { Increment(1.0); }
 
 void Gauge::Increment(const double value) { Change(value); }
@@ -34,7 +40,12 @@ void Gauge::SetToCurrentTime() {
   Set(static_cast<double>(time));
 }
 
-double Gauge::Value() const { return value_; }
+double Gauge::Value() const {
+  if (callback_) {
+    return callback_();
+  }
+  return value_.load();
+}
 
 ClientMetric Gauge::Collect() const {
   ClientMetric metric;

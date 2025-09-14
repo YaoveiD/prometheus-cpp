@@ -1,6 +1,7 @@
 #include <array>
 #include <chrono>
 #include <cstdlib>
+#include <iostream>
 #include <memory>
 #include <string>
 #include <thread>
@@ -11,6 +12,38 @@
 #include "prometheus/family.h"
 #include "prometheus/info.h"
 #include "prometheus/registry.h"
+
+struct ValueProvider {
+  double operator()() {
+    auto random_value = std::rand();
+    return static_cast<double>(random_value % 42) + 1;
+  }
+};
+
+void testGauge(prometheus::Registry& registry) {
+  std::shared_ptr<ValueProvider> provider = std::make_shared<ValueProvider>();
+  auto weak_provider = std::weak_ptr<ValueProvider>(provider);
+
+  std::thread t = std::thread([weak_provider, &registry]() {
+    auto& gauge_family = prometheus::BuildGauge()
+                             .Name("some_gauge")
+                             .Help("An example of a gauge")
+                             .Register(registry);
+
+    auto& some_gauge =
+        gauge_family.Add({{"foo", "bar"}}, [wp = weak_provider]() {
+          if (auto shared_provider = wp.lock()) {
+            return (*shared_provider)();
+          } else {
+            std::cerr << "ValueProvider has been destroyed!" << std::endl;
+            return 0.0;
+          }
+        });
+  });
+
+  t.detach();
+  std::this_thread::sleep_for(std::chrono::seconds(60));
+}
 
 int main() {
   using namespace prometheus;
@@ -57,6 +90,8 @@ int main() {
   version_info.Add({{"prometheus", "1.0"}});
   // ask the exposer to scrape the registry on incoming HTTP requests
   exposer.RegisterCollectable(registry);
+
+  testGauge(*registry);
 
   for (;;) {
     std::this_thread::sleep_for(std::chrono::seconds(1));

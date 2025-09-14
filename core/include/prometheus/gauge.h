@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <functional>
 
 #include "prometheus/client_metric.h"
 #include "prometheus/detail/builder.h"  // IWYU pragma: export
@@ -31,6 +32,10 @@ class PROMETHEUS_CPP_CORE_EXPORT Gauge {
   /// \brief Create a gauge that starts at the given amount.
   explicit Gauge(double);
 
+  explicit Gauge(std::function<double(void)> callback);
+
+  ~Gauge();
+
   /// \brief Increment the gauge by 1.
   void Increment();
 
@@ -60,6 +65,7 @@ class PROMETHEUS_CPP_CORE_EXPORT Gauge {
  private:
   void Change(double);
   std::atomic<double> value_{0.0};
+  std::function<double(void)> callback_{nullptr};
 };
 
 /// \brief Return a builder to configure and register a Gauge metric.
