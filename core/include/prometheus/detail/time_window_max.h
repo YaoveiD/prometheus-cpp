@@ -23,7 +23,8 @@ class PROMETHEUS_CPP_CORE_EXPORT TimeWindowMax {
   int64_t Get();
 
  private:
-  std::atomic_int64_t& Rotate();
+ template<bool with_lock>
+  void Rotate();
 
  private:
   Clock::duration expiry_;

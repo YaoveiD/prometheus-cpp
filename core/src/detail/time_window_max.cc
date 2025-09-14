@@ -2,6 +2,16 @@
 
 #include <iostream>
 
+namespace {
+struct RotateGuard {
+  RotateGuard(std::atomic_bool& rotate) : rotate_(rotate) {}
+  ~RotateGuard() { rotate_.store(false); }
+
+ private:
+  std::atomic_bool& rotate_;
+};
+}  // namespace
+
 namespace prometheus {
 namespace detail {
 
@@ -12,7 +22,7 @@ TimeWindowMax::TimeWindowMax(Clock::duration expiry, int buffer_length)
 }
 
 void TimeWindowMax::Record(int64_t value) {
-  Rotate();
+  Rotate<true>();
   for (auto& v : buffer_) {
     int64_t current = v.load();
     while (value > current && !v.compare_exchange_weak(current, value)) {
@@ -22,47 +32,54 @@ void TimeWindowMax::Record(int64_t value) {
 }
 
 int64_t TimeWindowMax::Get() {
-  auto& bucket = Rotate();
-  return bucket.load();
+  std::lock_guard<std::mutex> lock(mutex_);
+  Rotate<false>();
+  return buffer_[current_bucket_].load();
 }
 
-std::atomic_int64_t& TimeWindowMax::Rotate() {
+template<bool with_lock>
+void TimeWindowMax::Rotate() {
   auto now = Clock::now();
   auto time_since_last_rotation = now - last_rotation_;
 
   if (time_since_last_rotation < expiry_) {
-    return buffer_[current_bucket_];
+    return;
   }
 
   bool expected = false;
   if (!rotate_.compare_exchange_strong(expected, true)) {
-    return buffer_[current_bucket_];
+    return;
   }
 
-  std::lock_guard<std::mutex> lock{mutex_};
-  if (time_since_last_rotation > buffer_length_ * expiry_) {
-    for (auto& bucket : buffer_) {
-      bucket.store(0);
-    }
-    current_bucket_ = 0;
-    last_rotation_ = now - time_since_last_rotation % expiry_;
-    rotate_.store(false);
-    return buffer_[current_bucket_];
-  }
-
-  int iter = 0;
-  do {
-    buffer_[current_bucket_].store(0);
-    current_bucket_++;
-    if (current_bucket_ >= buffer_length_) {
+  auto rotate = [&]() {
+    RotateGuard guard{rotate_};
+    if (time_since_last_rotation > buffer_length_ * expiry_) {
+      for (auto& bucket : buffer_) {
+        bucket.store(0);
+      }
       current_bucket_ = 0;
+      last_rotation_ = now - time_since_last_rotation % expiry_;
+      return;
     }
-    time_since_last_rotation -= expiry_;
-    last_rotation_ += expiry_;
-  } while (time_since_last_rotation > expiry_ && ++iter < buffer_length_);
 
-  rotate_.store(false);
-  return buffer_[current_bucket_];
+    int iter = 0;
+    do {
+      buffer_[current_bucket_].store(0);
+      current_bucket_++;
+      if (current_bucket_ >= buffer_length_) {
+        current_bucket_ = 0;
+      }
+      time_since_last_rotation -= expiry_;
+      last_rotation_ += expiry_;
+    } while (time_since_last_rotation > expiry_ && ++iter < buffer_length_);
+  };
+
+  if (with_lock) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    rotate();
+  } else {
+    rotate();
+  }
 }
 
 }  // namespace detail
