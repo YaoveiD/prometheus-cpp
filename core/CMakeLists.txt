@@ -5,6 +5,7 @@ add_library(core
   src/detail/builder.cc
   src/detail/ckms_quantiles.cc
   src/detail/time_window_quantiles.cc
+  src/detail/time_window_max.cc
   src/detail/utils.cc
   src/family.cc
   src/gauge.cc

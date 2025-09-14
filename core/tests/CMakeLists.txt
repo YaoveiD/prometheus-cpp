@@ -12,6 +12,7 @@ add_executable(prometheus_core_test
   summary_test.cc
   text_serializer_test.cc
   utils_test.cc
+  time_window_max_test.cc
 )
 
 target_link_libraries(prometheus_core_test
