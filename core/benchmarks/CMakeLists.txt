@@ -9,6 +9,7 @@ add_executable(benchmarks
   info_bench.cc
   registry_bench.cc
   summary_bench.cc
+  time_window_max_bench.cc
 )
 
 target_link_libraries(benchmarks
