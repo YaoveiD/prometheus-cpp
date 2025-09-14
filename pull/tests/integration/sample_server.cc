@@ -8,21 +8,21 @@
 
 #include "prometheus/client_metric.h"
 #include "prometheus/counter.h"
+#include "prometheus/detail/time_window_max.h"
 #include "prometheus/exposer.h"
 #include "prometheus/family.h"
 #include "prometheus/info.h"
 #include "prometheus/registry.h"
 
-struct ValueProvider {
-  double operator()() {
-    auto random_value = std::rand();
-    return static_cast<double>(random_value % 42) + 1;
-  }
-};
-
 void testGauge(prometheus::Registry& registry) {
-  std::shared_ptr<ValueProvider> provider = std::make_shared<ValueProvider>();
-  auto weak_provider = std::weak_ptr<ValueProvider>(provider);
+  using prometheus::detail::TimeWindowMax;
+  using Clock = TimeWindowMax::Clock;
+  int buffer_length = 3;
+  Clock::duration expiry = std::chrono::seconds(1);
+
+  std::shared_ptr<TimeWindowMax> provider =
+      std::make_shared<TimeWindowMax>(expiry, buffer_length);
+  auto weak_provider = std::weak_ptr<TimeWindowMax>(provider);
 
   std::thread t = std::thread([weak_provider, &registry]() {
     auto& gauge_family = prometheus::BuildGauge()
@@ -31,9 +31,9 @@ void testGauge(prometheus::Registry& registry) {
                              .Register(registry);
 
     auto& some_gauge =
-        gauge_family.Add({{"foo", "bar"}}, [wp = weak_provider]() {
+        gauge_family.Add({{"foo", "bar"}}, [wp = weak_provider]() -> double {
           if (auto shared_provider = wp.lock()) {
-            return (*shared_provider)();
+            return shared_provider->Get();
           } else {
             std::cerr << "ValueProvider has been destroyed!" << std::endl;
             return 0.0;
@@ -42,7 +42,13 @@ void testGauge(prometheus::Registry& registry) {
   });
 
   t.detach();
-  std::this_thread::sleep_for(std::chrono::seconds(60));
+
+  for (int i = 0; i < 100 * 60; ++i) {
+    const auto random_value = std::rand() % 10000 + 1;
+    provider->Record(random_value);
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+
 }
 
 int main() {
