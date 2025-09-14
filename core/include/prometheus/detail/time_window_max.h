@@ -31,6 +31,7 @@ class PROMETHEUS_CPP_CORE_EXPORT TimeWindowMax {
   std::vector<std::atomic_int64_t> buffer_;
   std::size_t current_bucket_{0};
   Clock::time_point last_rotation_;
+  std::atomic_bool rotate_;
   std::mutex mutex_;
 };
 
